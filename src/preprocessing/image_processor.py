@@ -20,20 +20,6 @@ class ImageProcessor:
         
         return pixels
     
-    @staticmethod
-    def create_gradient(width: int = 400, height: int = 300) -> Image:
-        image_array = np.zeros((height, width, 3), dtype=np.uint8)
-        
-        for y in range(height):
-            for x in range(width):
-                image_array[y, x] = [
-                    int(255 * x / width),
-                    int(255 * y / height),
-                    int(255 * (1 - x / width))
-                ]
-        
-        return Image(image_array)
-    
     def reconstruct_image(
         self,
         labels: np.ndarray,
