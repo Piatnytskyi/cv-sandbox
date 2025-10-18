@@ -4,6 +4,7 @@ from .clustering import KMeans, AbstractClustering, InitializationStrategy, Forg
 from .preprocessing import ImageProcessor
 from .visualization import ResultVisualizer
 from .models import Image
+from .metrics import ImageMetrics
 from .config import (
     MAX_ITERATIONS,
     CONVERGENCE_TOLERANCE,
@@ -19,6 +20,7 @@ __all__ = [
     "ImageProcessor",
     "ResultVisualizer",
     "Image",
+    "ImageMetrics",
     "MAX_ITERATIONS",
     "CONVERGENCE_TOLERANCE",
     "DEFAULT_N_CLUSTERS",
