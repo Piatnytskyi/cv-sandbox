@@ -1,5 +1,5 @@
 import numpy as np
-from typing import Optional
+from typing import Optional, Callable
 
 from .abstract_clustering import AbstractClustering
 from .strategies import InitializationStrategy, ForgyInitialization
@@ -12,9 +12,10 @@ class KMeans(AbstractClustering):
         initialization_strategy: Optional[InitializationStrategy] = None,
         max_iterations: int = MAX_ITERATIONS,
         tolerance: float = CONVERGENCE_TOLERANCE,
-        random_state: Optional[int] = None
+        random_state: Optional[int] = None,
+        progress_callback: Optional[Callable[[int, float], None]] = None
     ):
-        super().__init__(n_clusters, random_state)
+        super().__init__(n_clusters, random_state, progress_callback)
         self.initialization_strategy = initialization_strategy or ForgyInitialization()
         self.max_iterations = max_iterations
         self.tolerance = tolerance
@@ -31,6 +32,9 @@ class KMeans(AbstractClustering):
             
             self.cluster_centers_ = new_centers
             self.n_iter_ = iteration + 1
+            
+            if self.progress_callback:
+                self.progress_callback(iteration + 1, center_shift)
             
             if center_shift < self.tolerance:
                 break
