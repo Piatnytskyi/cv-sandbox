@@ -8,17 +8,18 @@ sys.path.insert(0, str(Path(__file__).parent.parent))
 
 from src.clustering import KMeans, ForgyInitialization
 from src.preprocessing import ImageProcessor
-from src.visualization import ResultVisualizer
+from src.visualization import ResultVisualizer, MetricsReporter
 from src.models import Image
 from src.metrics import ImageMetrics
 from src.config import DEFAULT_N_CLUSTERS, RANDOM_SEED, MAX_ITERATIONS, CONVERGENCE_TOLERANCE
 
 
-def main(image_path: str = 'input_image.jpg', n_clusters: int = DEFAULT_N_CLUSTERS, tolerance: float = CONVERGENCE_TOLERANCE):
+def main(image_path: str = 'input_image.jpg', n_clusters: int = DEFAULT_N_CLUSTERS, tolerance: float = CONVERGENCE_TOLERANCE, output_dir: str = None):
     image_path = str(Path(image_path).resolve())
     
     image_processor = ImageProcessor(normalize=True, random_state=RANDOM_SEED)
     visualizer = ResultVisualizer(dpi=150)
+    metrics_reporter = MetricsReporter(output_dir=output_dir) if output_dir else None
     
     print(f"Loading image from '{image_path}'...")
     image = Image.load(image_path)
@@ -79,6 +80,20 @@ def main(image_path: str = 'input_image.jpg', n_clusters: int = DEFAULT_N_CLUSTE
         print(f"  Precision (tol=10): {precision:.4f}")
         print(f"  Recall (tol=10): {recall:.4f}")
         print(f"  F1 Score (tol=10): {f1:.4f}")
+        
+        if metrics_reporter:
+            metrics_reporter.add_metrics(
+                noise_type='Gaussian',
+                noise_intensity=std,
+                n_iterations=kmeans.n_iter_,
+                elapsed_time=elapsed_time,
+                inertia=kmeans.inertia_,
+                mse=mse,
+                psnr=psnr,
+                precision=precision,
+                recall=recall,
+                f1=f1
+            )
         
         title_noisy = f'Gaussian Noise (std={std})'
         title_clustered = (
@@ -149,6 +164,21 @@ def main(image_path: str = 'input_image.jpg', n_clusters: int = DEFAULT_N_CLUSTE
         print(f"  Recall (tol=10): {recall:.4f}")
         print(f"  F1 Score (tol=10): {f1:.4f}")
         
+        if metrics_reporter:
+            noise_pct = (salt_prob + pepper_prob) * 100
+            metrics_reporter.add_metrics(
+                noise_type='Impulse',
+                noise_intensity=noise_pct,
+                n_iterations=kmeans.n_iter_,
+                elapsed_time=elapsed_time,
+                inertia=kmeans.inertia_,
+                mse=mse,
+                psnr=psnr,
+                precision=precision,
+                recall=recall,
+                f1=f1
+            )
+        
         noise_pct = (salt_prob + pepper_prob) * 100
         title_noisy = f'Impulse Noise ({noise_pct:.0f}%)'
         title_clustered = (
@@ -167,6 +197,12 @@ def main(image_path: str = 'input_image.jpg', n_clusters: int = DEFAULT_N_CLUSTE
     
     print("\n" + "=" * 80)
     print("✓ All evaluations completed!")
+    
+    if metrics_reporter:
+        excel_path, chart_path = metrics_reporter.save_report()
+        print(f"✓ Metrics saved to: {excel_path}")
+        print(f"✓ Charts saved to: {chart_path}")
+    
     print("=" * 80)
     visualizer.show()
 
@@ -194,6 +230,12 @@ if __name__ == '__main__':
         default=CONVERGENCE_TOLERANCE,
         help='Convergence tolerance for K-Means'
     )
+    parser.add_argument(
+        '-o', '--output-dir',
+        type=str,
+        default=None,
+        help='Output directory for saving metrics report and charts (optional)'
+    )
     
     args = parser.parse_args()
-    main(args.input_image, args.clusters, args.tolerance)
+    main(args.input_image, args.clusters, args.tolerance, args.output_dir)
