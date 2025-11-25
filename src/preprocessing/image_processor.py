@@ -1,4 +1,5 @@
 import numpy as np
+import cv2
 from typing import Tuple, Optional
 from ..models import Image
 
@@ -67,3 +68,25 @@ class ImageProcessor:
         noisy_data[pepper_coords[0], pepper_coords[1], :] = 0
         
         return Image(noisy_data)
+    
+    def apply_binarization(self, image: Image, threshold: float = 0.3) -> Image:
+        normalized_data = image.data.astype(np.float32) / 255.0
+        
+        binary_data = (normalized_data > threshold).astype(np.float32)
+        
+        binary_data = (binary_data * 255).astype(np.uint8)
+        
+        return Image(binary_data)
+    
+    def apply_erosion(self, image: Image, kernel_size: int = 3) -> Image:
+        kernel = np.ones((kernel_size, kernel_size), np.uint8)
+        
+        eroded_data = image.data.copy()
+        
+        if len(eroded_data.shape) == 3:
+            for channel in range(eroded_data.shape[2]):
+                eroded_data[:, :, channel] = cv2.erode(eroded_data[:, :, channel], kernel)
+        else:
+            eroded_data = cv2.erode(eroded_data, kernel)
+        
+        return Image(eroded_data)
