@@ -15,7 +15,6 @@ sys.path.insert(0, str(Path(__file__).parent.parent))
 from src.preprocessing import ImageProcessor
 from src.visualization import ResultVisualizer
 from src.config import RANDOM_SEED
-from src.models import Image, HDF5ImageSource, ImageDataGenerator
 
 def main(
     apply_binarization: bool = False,
@@ -23,7 +22,7 @@ def main(
     binarization_threshold: float = 0.3,
     erosion_kernel_size: int = 3,
     epochs: int = 5,
-    batch_size: int = 32
+    batch_size: int = 128
 ):
     print("=" * 80)
     print("CNN IMAGE CLASSIFICATION - FOOD-101")
@@ -47,14 +46,12 @@ def main(
     print(f"Loading data from: {h5_file_path}")
     
     with h5py.File(h5_file_path, 'r') as h5file:
+        images = h5file['images'][:]
         category_onehot = h5file['category'][:]
         category_names_bytes = h5file['category_names'][:]
-        num_samples = h5file['images'].shape[0]
-        image_shape = h5file['images'].shape[1:]
         
         print(f"\nDataset loaded successfully:")
-        print(f"  Total images: {num_samples}")
-        print(f"  Image shape: {image_shape}")
+        print(f"  Images shape: {images.shape}")
         print(f"  Category (one-hot) shape: {category_onehot.shape}")
         print(f"  Number of categories: {len(category_names_bytes)}")
 
@@ -70,134 +67,81 @@ def main(
     print("=" * 80)
     
     train_indices, test_indices = train_test_split(
-        np.arange(num_samples), 
+        np.arange(len(images)), 
         test_size=0.2, 
         random_state=RANDOM_SEED, 
         stratify=labels
     )
     
+    train_images = images[train_indices]
+    test_images = images[test_indices]
     train_labels = labels[train_indices]
     test_labels = labels[test_indices]
     
-    print(f"Training set: {len(train_indices)} images")
-    print(f"Test set: {len(test_indices)} images")
-    print(f"Image shape: {image_shape}")
+    train_images = train_images.astype('float32') / 255.0
+    test_images = test_images.astype('float32') / 255.0
     
-    def create_preprocessing_fn(processor, apply_bin, apply_ero, bin_thresh, ero_kernel):
-        if not apply_bin and not apply_ero:
-            return None
-        
-        def preprocess(img):
-            img_uint8 = (img * 255).astype(np.uint8)
-            img_obj = Image(img_uint8)
-            
-            if apply_bin:
-                img_obj = processor.apply_binarization(img_obj, threshold=bin_thresh)
-            if apply_ero:
-                img_obj = processor.apply_erosion(img_obj, kernel_size=ero_kernel)
-            
-            return img_obj.data.astype(np.float32) / 255.0
-        
-        return preprocess
+    print(f"Training set: {train_images.shape[0]} images")
+    print(f"Test set: {test_images.shape[0]} images")
+    print(f"Image shape: {train_images.shape[1:]}")
     
-    image_processor = None
-    preprocessing_fn = None
     if apply_binarization or apply_erosion:
         print("\n" + "=" * 80)
-        print("PREPROCESSING CONFIGURATION")
+        print("PREPROCESSING IMAGES")
         print("=" * 80)
+        
         image_processor = ImageProcessor(normalize=False, random_state=RANDOM_SEED)
         
         if apply_binarization:
-            print(f"  Binarization enabled (threshold={binarization_threshold})")
-        if apply_erosion:
-            print(f"  Erosion enabled (kernel_size={erosion_kernel_size})")
-        print("  Note: Preprocessing will be applied during batch generation")
+            print(f"Applying binarization (threshold={binarization_threshold})...")
+            
+            from src.models import Image
+            train_images_processed = []
+            for img in train_images:
+                img_uint8 = (img * 255).astype(np.uint8)
+                img_obj = Image(img_uint8)
+                binary_img = image_processor.apply_binarization(img_obj, threshold=binarization_threshold)
+                train_images_processed.append(binary_img.data.astype(np.float32) / 255.0)
+            train_images = np.array(train_images_processed)
+            
+            test_images_processed = []
+            for img in test_images:
+                img_uint8 = (img * 255).astype(np.uint8)
+                img_obj = Image(img_uint8)
+                binary_img = image_processor.apply_binarization(img_obj, threshold=binarization_threshold)
+                test_images_processed.append(binary_img.data.astype(np.float32) / 255.0)
+            test_images = np.array(test_images_processed)
+            
+            print("  Binarization completed")
         
-        preprocessing_fn = create_preprocessing_fn(
-            image_processor,
-            apply_binarization,
-            apply_erosion,
-            binarization_threshold,
-            erosion_kernel_size
-        )
-    
-    data_source = HDF5ImageSource(str(h5_file_path))
-    
-    def default_preprocessing(img):
-        return img.astype('float32') / 255.0
-    
-    final_preprocessing_fn = preprocessing_fn if preprocessing_fn else default_preprocessing
-    
-    steps_per_epoch = len(train_indices) // batch_size
-    validation_steps = int(steps_per_epoch * 0.1)
-    
-    train_size = int(len(train_indices) * 0.9)
-    train_train_indices = train_indices[:train_size]
-    train_val_indices = train_indices[train_size:]
-    
-    train_generator = ImageDataGenerator(
-        data_source=data_source,
-        indices=train_train_indices,
-        labels=labels,
-        batch_size=batch_size,
-        preprocessing_fn=final_preprocessing_fn,
-        shuffle=True
-    )
-    
-    val_generator = ImageDataGenerator(
-        data_source=data_source,
-        indices=train_val_indices,
-        labels=labels,
-        batch_size=batch_size,
-        preprocessing_fn=final_preprocessing_fn,
-        shuffle=True
-    )
-    
-    test_generator = ImageDataGenerator(
-        data_source=data_source,
-        indices=test_indices,
-        labels=labels,
-        batch_size=batch_size,
-        preprocessing_fn=final_preprocessing_fn,
-        shuffle=False
-    )
-    
-    train_dataset = tf.data.Dataset.from_generator(
-        train_generator,
-        output_signature=(
-            tf.TensorSpec(shape=(None,) + image_shape, dtype=tf.float32),
-            tf.TensorSpec(shape=(None,), dtype=tf.int64)
-        )
-    ).prefetch(tf.data.AUTOTUNE)
-    
-    val_dataset = tf.data.Dataset.from_generator(
-        val_generator,
-        output_signature=(
-            tf.TensorSpec(shape=(None,) + image_shape, dtype=tf.float32),
-            tf.TensorSpec(shape=(None,), dtype=tf.int64)
-        )
-    ).prefetch(tf.data.AUTOTUNE)
-    
-    test_dataset = tf.data.Dataset.from_generator(
-        test_generator,
-        output_signature=(
-            tf.TensorSpec(shape=(None,) + image_shape, dtype=tf.float32),
-            tf.TensorSpec(shape=(None,), dtype=tf.int64)
-        )
-    ).prefetch(tf.data.AUTOTUNE)
-    
-    print(f"\nDataset generators created:")
-    print(f"  Training batches per epoch: {steps_per_epoch - validation_steps}")
-    print(f"  Validation batches: {validation_steps}")
-    print(f"  Test batches: {len(test_indices) // batch_size}")
+        if apply_erosion:
+            print(f"Applying erosion (kernel_size={erosion_kernel_size})...")
+            
+            from src.models import Image
+            train_images_processed = []
+            for img in train_images:
+                img_uint8 = (img * 255).astype(np.uint8)
+                img_obj = Image(img_uint8)
+                eroded_img = image_processor.apply_erosion(img_obj, kernel_size=erosion_kernel_size)
+                train_images_processed.append(eroded_img.data.astype(np.float32) / 255.0)
+            train_images = np.array(train_images_processed)
+            
+            test_images_processed = []
+            for img in test_images:
+                img_uint8 = (img * 255).astype(np.uint8)
+                img_obj = Image(img_uint8)
+                eroded_img = image_processor.apply_erosion(img_obj, kernel_size=erosion_kernel_size)
+                test_images_processed.append(eroded_img.data.astype(np.float32) / 255.0)
+            test_images = np.array(test_images_processed)
+            
+            print("  Erosion completed")
     
     print("\n" + "=" * 80)
     print("BUILDING MODEL")
     print("=" * 80)
     
     num_classes = len(class_names)
-    input_shape = image_shape
+    input_shape = train_images.shape[1:]
     
     model = models.Sequential([
         layers.Conv2D(64, (3, 3), padding='same', activation='relu', input_shape=input_shape),
@@ -236,11 +180,11 @@ def main(
     print("=" * 80)
     
     history = model.fit(
-        train_dataset,
+        train_images,
+        train_labels,
         epochs=epochs,
-        steps_per_epoch=steps_per_epoch - validation_steps,
-        validation_data=val_dataset,
-        validation_steps=validation_steps,
+        batch_size=batch_size,
+        validation_split=0.1,
         verbose=1
     )
     
@@ -248,20 +192,11 @@ def main(
     print("EVALUATING MODEL")
     print("=" * 80)
     
-    test_loss, test_acc = model.evaluate(
-        test_dataset, 
-        steps=len(test_indices) // batch_size,
-        verbose=2
-    )
-    print(f"Test accuracy: {test_acc:.4f}")
+    test_loss, test_acc = model.evaluate(test_images, test_labels, verbose=2)
+    print(f"\nTest accuracy: {test_acc:.4f}")
     print(f"Test loss: {test_loss:.4f}")
     
-    print("\nGenerating predictions...")
-    y_pred = []
-    for batch_images, _ in test_dataset:
-        predictions = model.predict(batch_images, verbose=0)
-        y_pred.extend(predictions.argmax(axis=1))
-    y_pred = np.array(y_pred[:len(test_indices)])
+    y_pred = model.predict(test_images, verbose=0).argmax(axis=1)
     
     print("\n" + "=" * 80)
     print("CLASSIFICATION REPORT (Top 20 classes)")
@@ -289,19 +224,11 @@ def main(
     print("=" * 80)
     
     n_samples = 10
-    sample_indices = np.random.RandomState(RANDOM_SEED).choice(len(test_indices), n_samples, replace=False)
+    indices = np.random.RandomState(RANDOM_SEED).choice(test_images.shape[0], n_samples, replace=False)
     
-    sample_images = []
-    with h5py.File(h5_file_path, 'r') as h5file:
-        for idx in sample_indices:
-            actual_idx = test_indices[idx]
-            img = h5file['images'][actual_idx]
-            img = final_preprocessing_fn(img)
-            sample_images.append(img)
-    
-    sample_images = np.array(sample_images)
-    sample_pred_labels = [class_names[y_pred[idx]] for idx in sample_indices]
-    sample_true_labels = [class_names[labels[test_indices[idx]]] for idx in sample_indices]
+    sample_images = test_images[indices]
+    sample_pred_labels = [class_names[y_pred[idx]] for idx in indices]
+    sample_true_labels = [class_names[test_labels[idx]] for idx in indices]
     
     visualizer = ResultVisualizer(dpi=150)
     visualizer.visualize_predictions(
@@ -355,7 +282,7 @@ if __name__ == '__main__':
     parser.add_argument(
         '--batch-size',
         type=int,
-        default=32,
+        default=128,
         help='Training batch size'
     )
     
