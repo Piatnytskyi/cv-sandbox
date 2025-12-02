@@ -224,13 +224,14 @@ def main(
     sample_true_labels = [class_names[idx] for idx in sample_true_indices]
     
     visualizer = ResultVisualizer(dpi=150)
+    cmap = 'gray' if apply_binarization else None
     visualizer.visualize_predictions(
         images=sample_batch_x,
         pred_labels=sample_pred_labels,
         true_labels=sample_true_labels,
         title='Sample Predictions on Signs Detection Dataset',
         figsize=(15, 6),
-        cmap=None
+        cmap=cmap
     )
     visualizer.show()
     

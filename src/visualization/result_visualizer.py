@@ -56,6 +56,10 @@ class ResultVisualizer:
             else:
                 image = images[i]
             
+            # If cmap is specified and image is 3D, convert to grayscale
+            if cmap is not None and len(image.shape) == 3:
+                image = image.mean(axis=2)
+            
             ax.imshow(image, cmap=cmap)
             
             color = 'green' if pred_labels[i] == true_labels[i] else 'red'
